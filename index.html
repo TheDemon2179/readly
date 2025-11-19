@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ru">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Super Reader 2.0</title>
+
+		<!-- Подключаем библиотеки -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+		<script>
+			pdfjsLib.GlobalWorkerOptions.workerSrc =
+				'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+		</script>
+
+		<style>
+			:root {
+				--outer-bg: #e0e0e0;
+				--bg-color: #ffffff;
+				--text-color: #000000;
+				--font-family: 'Times New Roman';
+				--font-size: 18px;
+				--line-height: 1.5;
+				--p-spacing: 1em;
+				--content-width: 800px; /* Теперь это max-width */
+			}
+
+			body {
+				margin: 0;
+				padding: 0;
+				background-color: #222;
+				font-family: sans-serif;
+				height: 100vh;
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+			}
+
+			/* Кнопка переключения меню */
+			#toggle-toolbar-btn {
+				position: fixed;
+				top: 10px;
+				right: 10px;
+				z-index: 1001;
+				background: rgba(0, 0, 0, 0.5);
+				color: white;
+				border: none;
+				border-radius: 50%;
+				width: 40px;
+				height: 40px;
+				cursor: pointer;
+				font-size: 20px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				transition: background 0.3s;
+			}
+			#toggle-toolbar-btn:hover {
+				background: rgba(0, 0, 0, 0.8);
+			}
+
+			/* Панель настроек */
+			#toolbar {
+				background: #2b2b2b;
+				color: white;
+				padding: 10px 60px 10px 20px; /* Отступ справа для кнопки */
+				display: flex;
+				flex-wrap: wrap;
+				gap: 15px;
+				align-items: center;
+				z-index: 100;
+				border-bottom: 1px solid #444;
+				flex-shrink: 0;
+				transition: transform 0.3s ease, opacity 0.3s ease;
+				max-height: 300px; /* Для анимации */
+				opacity: 1;
+			}
+
+			/* Класс для скрытия тулбара */
+			#toolbar.hidden {
+				transform: translateY(-100%);
+				position: absolute;
+				width: 100%;
+				opacity: 0;
+				pointer-events: none;
+			}
+
+			.control-group {
+				display: flex;
+				flex-direction: column;
+				gap: 2px;
+			}
+			.control-row {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+
+			label {
+				font-size: 10px;
+				text-transform: uppercase;
+				color: #888;
+				letter-spacing: 1px;
+				font-weight: bold;
+			}
+
+			select,
+			input[type='number'] {
+				padding: 5px;
+				border-radius: 4px;
+				border: 1px solid #555;
+				background: #444;
+				color: white;
+			}
+
+			/* Кастомные инпуты цвета */
+			input[type='color'] {
+				border: none;
+				width: 30px;
+				height: 30px;
+				padding: 0;
+				background: none;
+				cursor: pointer;
+			}
+
+			/* Слайдер */
+			input[type='range'] {
+				cursor: pointer;
+			}
+
+			button.action-btn {
+				cursor: pointer;
+				padding: 6px 12px;
+				background: #007bff;
+				color: white;
+				border: none;
+				border-radius: 4px;
+				transition: 0.2s;
+			}
+			button.action-btn:hover {
+				background: #0056b3;
+			}
+
+			.theme-btn {
+				width: 24px;
+				height: 24px;
+				border-radius: 50%;
+				border: 2px solid #555;
+				cursor: pointer;
+				transition: transform 0.1s;
+			}
+			.theme-btn:hover {
+				transform: scale(1.1);
+				border-color: #fff;
+			}
+
+			/* Область чтения */
+			#reader-container {
+				flex: 1;
+				overflow-y: auto;
+				display: flex;
+				background-color: var(--outer-bg);
+				padding: 0;
+				scroll-behavior: smooth;
+				transition: background-color 0.3s ease;
+				position: relative;
+			}
+
+			#content-wrapper {
+				background-color: var(--bg-color);
+				color: var(--text-color);
+				width: 100%;
+				max-width: var(--content-width);
+				min-height: 100%;
+				box-sizing: border-box;
+				margin: 0 auto;
+				padding: 50px;
+				box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+				transition: background-color 0.3s ease, color 0.3s ease,
+					max-width 0.3s ease;
+			}
+
+			#content-area {
+				font-family: var(--font-family);
+				font-size: var(--font-size);
+				line-height: var(--line-height);
+			}
+			#content-area p {
+				margin-bottom: var(--p-spacing);
+				text-align: justify;
+			}
+			#content-area img {
+				max-width: 100%;
+				height: auto;
+				display: block;
+				margin: 20px auto;
+			}
+
+			canvas.pdf-page {
+				margin-bottom: 0;
+				display: block;
+				width: 100%;
+			}
+
+			#pagination-controls {
+				display: none;
+				padding: 10px;
+				background: #2b2b2b;
+				color: white;
+				justify-content: center;
+				gap: 20px;
+				flex-shrink: 0;
+			}
+
+			/* Мобильная адаптация */
+			@media (max-width: 600px) {
+				#content-wrapper {
+					padding: 20px;
+				}
+				#toolbar {
+					padding-right: 50px;
+					gap: 10px;
+				}
+				.control-group {
+					min-width: 45%;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<!-- Кнопка скрытия меню -->
+		<button id="toggle-toolbar-btn" onclick="toggleToolbar()">⚙️</button>
+
+		<!-- Панель управления -->
+		<div id="toolbar">
+			<!-- 1. Файл -->
+			<div class="control-group">
+				<label>Файл</label>
+				<input
+					type="file"
+					id="file-input"
+					accept=".txt,.docx,.pdf"
+					style="color: transparent; width: 90px"
+				/>
+			</div>
+
+			<!-- 2. Темы (пресеты) -->
+			<div class="control-group">
+				<label>Темы</label>
+				<div class="control-row">
+					<div
+						class="theme-btn"
+						style="background: #fff"
+						onclick="setTheme('white')"
+						title="Белая"
+					></div>
+					<div
+						class="theme-btn"
+						style="background: #1a1a1a"
+						onclick="setTheme('dark')"
+						title="Темная"
+					></div>
+					<div
+						class="theme-btn"
+						style="background: #f4ecd8"
+						onclick="setTheme('sepia')"
+						title="Сепия"
+					></div>
+				</div>
+			</div>
+
+			<!-- 3. Своя тема (Custom) -->
+			<div class="control-group">
+				<label>Свой цвет</label>
+				<div class="control-row">
+					<input
+						type="color"
+						id="custom-bg-picker"
+						value="#ffffff"
+						title="Фон"
+					/>
+					<input
+						type="color"
+						id="custom-text-picker"
+						value="#000000"
+						title="Текст"
+					/>
+				</div>
+			</div>
+
+			<!-- 4. Шрифт -->
+			<div class="control-group">
+				<label>Шрифт</label>
+				<div class="control-row">
+					<select id="font-family">
+						<option value="'Times New Roman', serif">Times</option>
+						<option value="'Verdana', sans-serif">Verdana</option>
+						<option value="'Arial', sans-serif">Arial</option>
+						<option value="'Georgia', serif">Georgia</option>
+						<option value="'Courier New', monospace">Courier</option>
+					</select>
+					<input
+						type="number"
+						id="font-size"
+						value="18"
+						min="10"
+						max="50"
+						style="width: 40px"
+					/>
+				</div>
+			</div>
+
+			<!-- 5. Ширина (Слайдер) -->
+			<div class="control-group" style="flex-grow: 1; max-width: 200px">
+				<label>Ширина: <span id="width-val">800px</span></label>
+				<input
+					type="range"
+					id="width-slider"
+					min="30"
+					max="100"
+					value="60"
+					step="1"
+					style="width: 100%"
+				/>
+			</div>
+
+			<!-- 6. Интервал -->
+			<div class="control-group">
+				<label>Строки</label>
+				<input
+					type="number"
+					id="line-height"
+					value="1.5"
+					step="0.1"
+					min="1"
+					max="3"
+					style="width: 40px"
+				/>
+			</div>
+
+			<!-- 7. Поделиться -->
+			<div class="control-group" style="margin-left: auto">
+				<button class="action-btn" onclick="shareSettings()">🔗 Share</button>
+			</div>
+		</div>
+
+		<!-- Контейнер -->
+		<div id="reader-container">
+			<div id="content-wrapper">
+				<div id="content-area">
+					<h1>Super Reader 2.0</h1>
+					<p>Загрузите файл (.txt, .docx, .pdf), чтобы начать чтение.</p>
+					<p>Нажмите на ⚙️ в углу, чтобы скрыть или показать настройки.</p>
+					<p>Используйте палитру цветов, чтобы создать свою тему.</p>
+				</div>
+			</div>
+		</div>
+
+		<div id="pagination-controls">
+			<button class="action-btn" id="prev-page">←</button>
+			<span id="page-info">1-5</span>
+			<button class="action-btn" id="next-page">→</button>
+		</div>
+
+		<script>
+			// --- State ---
+			const settings = {
+				theme: 'white', // 'white', 'dark', 'sepia', 'custom'
+				customBg: '#ffffff',
+				customText: '#000000',
+				fontFamily: "'Times New Roman', serif",
+				fontSize: 18,
+				lineHeight: 1.5,
+				widthPercent: 60, // В процентах от 30 до 100
+			}
+
+			// --- Elements ---
+			const els = {
+				toolbar: document.getElementById('toolbar'),
+				wrapper: document.getElementById('content-wrapper'),
+				fontSelect: document.getElementById('font-family'),
+				sizeInput: document.getElementById('font-size'),
+				widthSlider: document.getElementById('width-slider'),
+				widthValDisplay: document.getElementById('width-val'),
+				lhInput: document.getElementById('line-height'),
+				bgPicker: document.getElementById('custom-bg-picker'),
+				textPicker: document.getElementById('custom-text-picker'),
+				fileInput: document.getElementById('file-input'),
+				pagination: document.getElementById('pagination-controls'),
+				area: document.getElementById('content-area'),
+			}
+
+			const themes = {
+				white: { bg: '#ffffff', text: '#000000', outer: '#e0e0e0' },
+				dark: { bg: '#1a1a1a', text: '#d1d1d1', outer: '#1a1a1a' },
+				sepia: { bg: '#f4ecd8', text: '#2b2b2b', outer: '#f4ecd8' },
+			}
+
+			// --- Core Logic ---
+
+			function toggleToolbar() {
+				els.toolbar.classList.toggle('hidden')
+			}
+
+			function applySettings() {
+				const root = document.documentElement
+				let currentColors
+
+				// Определяем цвета
+				if (settings.theme === 'custom') {
+					currentColors = {
+						bg: settings.customBg,
+						text: settings.customText,
+						outer: settings.customBg, // Для кастома делаем outer таким же как bg для погружения
+					}
+				} else {
+					currentColors = themes[settings.theme]
+				}
+
+				// Применяем CSS переменные
+				root.style.setProperty('--bg-color', currentColors.bg)
+				root.style.setProperty('--text-color', currentColors.text)
+				root.style.setProperty('--outer-bg', currentColors.outer)
+
+				root.style.setProperty('--font-family', settings.fontFamily)
+				root.style.setProperty('--font-size', settings.fontSize + 'px')
+				root.style.setProperty('--line-height', settings.lineHeight)
+
+				// Ширина
+				if (settings.widthPercent >= 98) {
+					root.style.setProperty('--content-width', '100%')
+					els.wrapper.style.boxShadow = 'none'
+					els.widthValDisplay.innerText = '100%'
+				} else {
+					// Примерная конвертация % в px для отображения или просто %
+					root.style.setProperty('--content-width', settings.widthPercent + '%')
+					els.wrapper.style.boxShadow = '0 0 20px rgba(0,0,0,0.15)'
+					els.widthValDisplay.innerText = settings.widthPercent + '%'
+				}
+
+				// Синхронизация UI (инпуты)
+				els.fontSelect.value = settings.fontFamily
+				els.sizeInput.value = settings.fontSize
+				els.widthSlider.value = settings.widthPercent
+				els.lhInput.value = settings.lineHeight
+
+				// Синхронизация пикеров (если выбрана стандартная тема, пикеры обновляются под неё)
+				els.bgPicker.value = currentColors.bg
+				els.textPicker.value = currentColors.text
+
+				updatePdfFilter() // Обновить фильтр для PDF если нужно
+				saveToStorage()
+			}
+
+			function setTheme(name) {
+				settings.theme = name
+				// Если выбрали пресет, обновляем сохраненные кастомные цвета,
+				// чтобы при переключении пикеров старт был с этого цвета
+				if (name !== 'custom') {
+					settings.customBg = themes[name].bg
+					settings.customText = themes[name].text
+				}
+				applySettings()
+			}
+
+			// Обработчики событий
+			els.fontSelect.addEventListener('change', e => {
+				settings.fontFamily = e.target.value
+				applySettings()
+			})
+			els.sizeInput.addEventListener('input', e => {
+				settings.fontSize = e.target.value
+				applySettings()
+			})
+			els.lhInput.addEventListener('input', e => {
+				settings.lineHeight = e.target.value
+				applySettings()
+			})
+
+			// Слайдер ширины
+			els.widthSlider.addEventListener('input', e => {
+				settings.widthPercent = e.target.value
+				applySettings()
+			})
+
+			// Кастомные цвета
+			function handleCustomColor() {
+				settings.theme = 'custom'
+				settings.customBg = els.bgPicker.value
+				settings.customText = els.textPicker.value
+				applySettings()
+			}
+			els.bgPicker.addEventListener('input', handleCustomColor)
+			els.textPicker.addEventListener('input', handleCustomColor)
+
+			// --- Storage & Sharing ---
+
+			function saveToStorage() {
+				localStorage.setItem('superReaderSettings', JSON.stringify(settings))
+			}
+
+			function loadSettings() {
+				const params = new URLSearchParams(window.location.search)
+
+				// Приоритет 1: Ссылка
+				if (params.has('theme')) {
+					settings.theme = params.get('theme')
+					settings.fontSize = params.get('fs') || 18
+					settings.fontFamily = params.get('ff') || "'Times New Roman', serif"
+					settings.widthPercent = params.get('w') || 60
+
+					// Если в ссылке кастомные цвета
+					if (params.has('cbg')) settings.customBg = params.get('cbg')
+					if (params.has('ctxt')) settings.customText = params.get('ctxt')
+
+					window.history.replaceState(
+						{},
+						document.title,
+						window.location.pathname
+					)
+				}
+				// Приоритет 2: LocalStorage
+				else {
+					const saved = localStorage.getItem('superReaderSettings')
+					if (saved) Object.assign(settings, JSON.parse(saved))
+				}
+				applySettings()
+			}
+
+			function shareSettings() {
+				const url = new URL(window.location)
+				url.searchParams.set('theme', settings.theme)
+				url.searchParams.set('fs', settings.fontSize)
+				url.searchParams.set('ff', settings.fontFamily)
+				url.searchParams.set('w', settings.widthPercent)
+
+				if (settings.theme === 'custom') {
+					url.searchParams.set('cbg', settings.customBg)
+					url.searchParams.set('ctxt', settings.customText)
+				}
+
+				navigator.clipboard.writeText(url.toString()).then(() => {
+					const btn = document.querySelector('.action-btn')
+					const oldText = btn.innerText
+					btn.innerText = 'Copied!'
+					setTimeout(() => (btn.innerText = oldText), 2000)
+				})
+			}
+
+			// --- File Rendering (Кратко, как было) ---
+
+			let pdfDoc = null
+			let pdfPageNum = 1
+			const PAGES_PER_VIEW = 5
+
+			els.fileInput.addEventListener('change', async e => {
+				const file = e.target.files[0]
+				if (!file) return
+				els.pagination.style.display = 'none'
+				els.area.innerHTML = '<p style="text-align:center">Загрузка...</p>'
+				if (file.type === 'text/plain') renderTxt(file)
+				else if (file.type === 'application/pdf') renderPdf(file)
+				else if (file.name.endsWith('.docx')) renderDocx(file)
+			})
+
+			function renderTxt(file) {
+				const reader = new FileReader()
+				reader.onload = e => {
+					els.area.innerHTML = e.target.result
+						.split(/\n\s*\n/)
+						.map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+						.join('')
+				}
+				reader.readAsText(file)
+			}
+
+			function renderDocx(file) {
+				const reader = new FileReader()
+				reader.onload = e => {
+					mammoth
+						.convertToHtml({ arrayBuffer: e.target.result })
+						.then(res => (els.area.innerHTML = res.value))
+						.catch(err => (els.area.innerHTML = 'Error loading DOCX'))
+				}
+				reader.readAsArrayBuffer(file)
+			}
+
+			async function renderPdf(file) {
+				const arrayBuffer = await file.arrayBuffer()
+				pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise
+				pdfPageNum = 1
+				els.pagination.style.display = 'flex'
+				renderPdfPages()
+			}
+
+			async function renderPdfPages() {
+				els.area.innerHTML = ''
+				const endPage = Math.min(
+					pdfPageNum + PAGES_PER_VIEW - 1,
+					pdfDoc.numPages
+				)
+				document.getElementById(
+					'page-info'
+				).innerText = `${pdfPageNum}-${endPage} / ${pdfDoc.numPages}`
+
+				for (let i = pdfPageNum; i <= endPage; i++) {
+					const page = await pdfDoc.getPage(i)
+					const viewport = page.getViewport({ scale: 1.5 })
+					const canvas = document.createElement('canvas')
+					canvas.className = 'pdf-page'
+					const ctx = canvas.getContext('2d')
+					canvas.height = viewport.height
+					canvas.width = viewport.width
+					await page.render({ canvasContext: ctx, viewport: viewport }).promise
+					els.area.appendChild(canvas)
+				}
+				updatePdfFilter()
+				document.getElementById('reader-container').scrollTop = 0
+			}
+
+			// Фильтр для PDF (инверсия цветов)
+			function updatePdfFilter() {
+				const canvases = document.querySelectorAll('canvas.pdf-page')
+				canvases.forEach(c => {
+					c.style.filter = 'none'
+					// Логика инверсии: если фон очень темный, инвертируем PDF
+					if (
+						isDarkColor(
+							settings.theme === 'custom'
+								? settings.customBg
+								: themes[settings.theme].bg
+						)
+					) {
+						c.style.filter = 'invert(1) hue-rotate(180deg)'
+					}
+					if (settings.theme === 'sepia') {
+						c.style.filter = 'sepia(0.5)'
+					}
+				})
+			}
+
+			// Проверка "темности" цвета (хелпер)
+			function isDarkColor(hex) {
+				const r = parseInt(hex.substr(1, 2), 16)
+				const g = parseInt(hex.substr(3, 2), 16)
+				const b = parseInt(hex.substr(5, 2), 16)
+				// Формула яркости
+				return (r * 299 + g * 587 + b * 114) / 1000 < 128
+			}
+
+			document.getElementById('prev-page').addEventListener('click', () => {
+				if (pdfPageNum <= 1) return
+				pdfPageNum -= PAGES_PER_VIEW
+				renderPdfPages()
+			})
+			document.getElementById('next-page').addEventListener('click', () => {
+				if (pdfPageNum + PAGES_PER_VIEW > pdfDoc.numPages) return
+				pdfPageNum += PAGES_PER_VIEW
+				renderPdfPages()
+			})
+
+			// Init
+			loadSettings()
+		</script>
+	</body>
+</html>
