@@ -227,6 +227,29 @@
 		</style>
 	</head>
 	<body>
+		<!-- Невидимый блок с фильтрами -->
+		<svg style="display: none">
+			<defs>
+				<filter id="recolor-filter">
+					<!-- Сначала обесцвечиваем (делаем ЧБ), чтобы цветные картинки не мешали -->
+					<feColorMatrix
+						type="matrix"
+						values="0.33 0.33 0.33 0 0
+                                                     0.33 0.33 0.33 0 0
+                                                     0.33 0.33 0.33 0 0
+                                                     0 0 0 1 0"
+					/>
+
+					<!-- Теперь мапим яркость на наши цвета -->
+					<feComponentTransfer>
+						<feFuncR id="func-r" type="table" tableValues="0 1" />
+						<feFuncG id="func-g" type="table" tableValues="0 1" />
+						<feFuncB id="func-b" type="table" tableValues="0 1" />
+					</feComponentTransfer>
+				</filter>
+			</defs>
+		</svg>
+
 		<!-- Кнопка скрытия меню -->
 		<button id="toggle-toolbar-btn" onclick="toggleToolbar()">⚙️</button>
 
@@ -447,7 +470,48 @@
 				els.bgPicker.value = currentColors.bg
 				els.textPicker.value = currentColors.text
 
-				updatePdfFilter() // Обновить фильтр для PDF если нужно
+				// updatePdfFilter() // Обновить фильтр для PDF если нужно
+
+				// --- НОВЫЙ БЛОК: Магия перекраски PDF ---
+
+				// 1. Получаем текущие цвета (Bg и Text) из переменных, которые мы только что установили
+				// (или берем напрямую из currentColors)
+				const bgHex = currentColors.bg
+				const textHex = currentColors.text
+
+				// 2. Функция конвертации HEX (#ffffff) в число (0...1)
+				const hexToNorm = h => [
+					parseInt(h.substr(1, 2), 16) / 255, // R
+					parseInt(h.substr(3, 2), 16) / 255, // G
+					parseInt(h.substr(5, 2), 16) / 255, // B
+				]
+
+				const bgRGB = hexToNorm(bgHex) // Например [1, 1, 1] для белого
+				const textRGB = hexToNorm(textHex) // Например [0, 0, 0] для черного
+
+				// 3. Обновляем SVG фильтр
+				// tableValues="Текст Фон" (значение для 0 и значение для 1)
+				document
+					.getElementById('func-r')
+					.setAttribute('tableValues', `${textRGB[0]} ${bgRGB[0]}`)
+				document
+					.getElementById('func-g')
+					.setAttribute('tableValues', `${textRGB[1]} ${bgRGB[1]}`)
+				document
+					.getElementById('func-b')
+					.setAttribute('tableValues', `${textRGB[2]} ${bgRGB[2]}`)
+
+				// 4. Применяем этот фильтр к Canvas PDF
+				// Если тема белая (стандартная), фильтр не нужен (для производительности)
+				const canvases = document.querySelectorAll('canvas.pdf-page')
+				const isDefault =
+					settings.theme === 'white' && settings.customBg === '#ffffff'
+
+				canvases.forEach(c => {
+					// Если тема стандартная - убираем фильтр, иначе - ставим наш ID
+					c.style.filter = isDefault ? 'none' : 'url(#recolor-filter)'
+				})
+
 				saveToStorage()
 			}
 
@@ -613,30 +677,31 @@
 					await page.render({ canvasContext: ctx, viewport: viewport }).promise
 					els.area.appendChild(canvas)
 				}
-				updatePdfFilter()
+				// updatePdfFilter()
 				document.getElementById('reader-container').scrollTop = 0
+				applySettings()
 			}
 
 			// Фильтр для PDF (инверсия цветов)
-			function updatePdfFilter() {
-				const canvases = document.querySelectorAll('canvas.pdf-page')
-				canvases.forEach(c => {
-					c.style.filter = 'none'
-					// Логика инверсии: если фон очень темный, инвертируем PDF
-					if (
-						isDarkColor(
-							settings.theme === 'custom'
-								? settings.customBg
-								: themes[settings.theme].bg
-						)
-					) {
-						c.style.filter = 'invert(1) hue-rotate(180deg)'
-					}
-					if (settings.theme === 'sepia') {
-						c.style.filter = 'sepia(0.5)'
-					}
-				})
-			}
+			// function updatePdfFilter() {
+			// 	const canvases = document.querySelectorAll('canvas.pdf-page')
+			// 	canvases.forEach(c => {
+			// 		c.style.filter = 'none'
+			// 		// Логика инверсии: если фон очень темный, инвертируем PDF
+			// 		if (
+			// 			isDarkColor(
+			// 				settings.theme === 'custom'
+			// 					? settings.customBg
+			// 					: themes[settings.theme].bg
+			// 			)
+			// 		) {
+			// 			c.style.filter = 'invert(1) hue-rotate(180deg)'
+			// 		}
+			// 		if (settings.theme === 'sepia') {
+			// 			c.style.filter = 'sepia(0.5)'
+			// 		}
+			// 	})
+			// }
 
 			// Проверка "темности" цвета (хелпер)
 			function isDarkColor(hex) {
